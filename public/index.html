@@ -1,27 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<title>Rock, Paper, Scissors</title>
-<meta charset="UTF-8">
-</head>
-<body>
-
-<div style="text-align:center">
-    <h1 id="message"></h1>
-    <div>
-        <button>Rock</button>
-        <button>Paper</button>
-        <button>Scissors</button>
-    </div>
-    <div id="score"></div>
-    <p>
-        <a href="/stat">Statistics</a>
-    </p>
-</div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="/shared.js"></script>
-<script src="/client.js"></script>
-
-</body>
+  <head>
+    <title>JS13k Real Time Server Demo</title>
+    <meta charset="UTF-8" />
+    <style>
+      body {
+        background: #000;
+        margin: 0;
+        padding: 0;
+      }
+      canvas {
+        width: 100%;
+        image-rendering: pixelated;
+        outline: 0;
+      }
+      #chat {
+        position: absolute;
+        z-index: 2;
+        bottom: 60px;
+        left: 10px;
+        width: 300px;
+        height: 200px;
+        font-family: sans-serif;
+        font-size: 12px;
+        padding: 4px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #ddd;
+        opacity: 0.5;
+        user-select: none;
+      }
+      #chat:hover {
+        opacity: 1;
+      }
+      p {
+        margin: 0;
+        padding: 0;
+      }
+      #input {
+        position: absolute;
+        z-index: 2;
+        bottom: 10px;
+        left: 10px;
+        width: 300px;
+        height: 30px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #ddd;
+      }
+      #input:focus,
+      #input:hover {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas width="240" height="135" tabindex="1"></canvas>
+    <div id="chat"><p style="color: #ff0">Welcome to World of JS13k!</p></div>
+    <input id="input" type="text" />
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/server.js"></script>
+  </body>
 </html>
