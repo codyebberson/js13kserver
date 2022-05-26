@@ -1,194 +1,60 @@
-import type { Request, Response } from "express";
 import type { Socket } from "socket.io";
-import type { Storage } from "../lib/storage";
-import { GUESS_NO, GUESS_PAPER, GUESS_ROCK, GUESS_SCISSORS } from "./shared";
+import { log } from "./debug";
+import { NETWORK_EVENT_DISCONNECT, NETWORK_EVENT_UPDATE } from "./network";
+import { Entity, ENTITY_TYPE_PLAYER, GameState, User } from "./types";
+import { removeElement } from "./utils";
 
-declare const storage: Storage;
+export function initServer() {
+  const users: User[] = [];
 
-/**
- * User sessions
- * @param {Array} users
- */
-const users: User[] = [];
+  const gameState: GameState = {
+    entities: [],
+    events: [],
+  };
 
-/**
- * Find opponent for a user
- * @param {User} user
- */
-function findOpponent(user: User) {
-  for (let i = 0; i < users.length; i++) {
-    if (user !== users[i] && users[i].opponent === null) {
-      new Game(user, users[i]).start();
-    }
-  }
-}
+  let nextEntityId = 1;
 
-/**
- * Remove user session
- * @param {User} user
- */
-function removeUser(user: User) {
-  users.splice(users.indexOf(user), 1);
-}
+  module.exports = (socket: Socket) => {
+    const entity: Entity = {
+      entityId: nextEntityId++,
+      entityType: ENTITY_TYPE_PLAYER,
+      x: 0,
+      y: 0,
+    };
+    gameState.entities.push(entity);
 
-/**
- * Game class
- */
-class Game {
-  constructor(readonly user1: User, readonly user2: User) {}
+    const user: User = { socket, entity, events: [] };
+    users.push(user);
 
-  /**
-   * Start new game
-   */
-  start() {
-    this.user1.start(this, this.user2);
-    this.user2.start(this, this.user1);
-  }
+    socket.on(NETWORK_EVENT_DISCONNECT, () => {
+      log("Disconnected: " + socket.id);
+      removeElement(users, user);
+      removeElement(gameState.entities, entity);
+    });
 
-  /**
-   * Is game ended
-   * @return {boolean}
-   */
-  ended() {
-    return this.user1.guess !== GUESS_NO && this.user2.guess !== GUESS_NO;
-  }
+    socket.on(NETWORK_EVENT_UPDATE, (data: Entity) => {
+      if (!data || data.x === undefined || data.y === undefined) {
+        return;
+      }
 
-  /**
-   * Final score
-   */
-  score() {
-    if (
-      (this.user1.guess === GUESS_ROCK &&
-        this.user2.guess === GUESS_SCISSORS) ||
-      (this.user1.guess === GUESS_PAPER && this.user2.guess === GUESS_ROCK) ||
-      (this.user1.guess === GUESS_SCISSORS && this.user2.guess === GUESS_PAPER)
-    ) {
-      this.user1.win();
-      this.user2.lose();
-    } else if (
-      (this.user2.guess === GUESS_ROCK &&
-        this.user1.guess === GUESS_SCISSORS) ||
-      (this.user2.guess === GUESS_PAPER && this.user1.guess === GUESS_ROCK) ||
-      (this.user2.guess === GUESS_SCISSORS && this.user1.guess === GUESS_PAPER)
-    ) {
-      this.user2.win();
-      this.user1.lose();
-    } else {
-      this.user1.draw();
-      this.user2.draw();
-    }
-  }
-}
+      entity.x = data.x;
+      entity.y = data.y;
+      entity.dx = data.dx;
+      entity.dy = data.dy;
+      sendUpdate();
+    });
 
-/**
- * User session class
- */
-class User {
-  readonly socket: Socket;
-  game: Game | null;
-  opponent: User | null;
-  guess: number;
-
-  /**
-   * @param {Socket} socket
-   */
-  constructor(socket: Socket) {
-    this.socket = socket;
-    this.game = null;
-    this.opponent = null;
-    this.guess = GUESS_NO;
-  }
-
-  /**
-   * Set guess value
-   * @param {number} guess
-   */
-  setGuess(guess: number) {
-    if (!this.opponent || guess <= GUESS_NO || guess > GUESS_SCISSORS) {
-      return false;
-    }
-    this.guess = guess;
-    return true;
-  }
-
-  /**
-   * Start new game
-   * @param {Game} game
-   * @param {User} opponent
-   */
-  start(game: Game, opponent: User) {
-    this.game = game;
-    this.opponent = opponent;
-    this.guess = GUESS_NO;
-    this.socket.emit("start");
-  }
-
-  /**
-   * Terminate game
-   */
-  end() {
-    this.game = null;
-    this.opponent = null;
-    this.guess = GUESS_NO;
-    this.socket.emit("end");
-  }
-
-  /**
-   * Trigger win event
-   */
-  win() {
-    this.socket.emit("win", this.opponent?.guess);
-  }
-
-  /**
-   * Trigger lose event
-   */
-  lose() {
-    this.socket.emit("lose", this.opponent?.guess);
-  }
-
-  /**
-   * Trigger draw event
-   */
-  draw() {
-    this.socket.emit("draw", this.opponent?.guess);
-  }
-}
-
-/**
- * Socket.IO on connect event
- * @param {Socket} socket
- */
-export const io = (socket: Socket) => {
-  const user = new User(socket);
-  users.push(user);
-  findOpponent(user);
-
-  socket.on("disconnect", () => {
-    console.log("Disconnected: " + socket.id);
-    removeUser(user);
-    if (user.opponent) {
-      user.opponent.end();
-      findOpponent(user.opponent);
-    }
-  });
-
-  socket.on("guess", (guess) => {
-    console.log("Guess: " + socket.id);
-    if (user.setGuess(guess) && user.game?.ended()) {
-      user.game.score();
-      user.game.start();
-      storage.get("games", 0).then((games) => {
-        storage.set("games", games + 1);
+    function sendUpdate() {
+      socket.emit(NETWORK_EVENT_UPDATE, {
+        ...gameState,
+        currentEntityId: entity.entityId,
+        events: user.events,
       });
+
+      user.events.length = 0;
     }
-  });
 
-  console.log("Connected: " + socket.id);
-};
-
-export const stat = (_req: Request, res: Response) => {
-  storage.get("games", 0).then((games) => {
-    res.send(`<h1>Games played: ${games}</h1>`);
-  });
-};
+    sendUpdate();
+    log(`Connected: socket=${socket.id}, entity=${entity.entityId}`);
+  };
+}

@@ -1,115 +1,93 @@
 import type { Socket } from "socket.io";
+import { DEBUG, log } from "./debug";
+import {
+  initKeys,
+  keys,
+  KEY_DOWN,
+  KEY_LEFT,
+  KEY_RIGHT,
+  KEY_UP,
+  updateKeys,
+} from "./keys";
+import {
+  NETWORK_EVENT_CONNECT,
+  NETWORK_EVENT_DISCONNECT,
+  NETWORK_EVENT_UPDATE,
+} from "./network";
+import { Entity, ENTITY_TYPE_PLAYER, GameState } from "./types";
 
 declare const io: (options: any) => Socket;
 
-const socket = io({ upgrade: false, transports: ["websocket"] });
-const buttons = document.getElementsByTagName("button");
-const message = document.getElementById("message") as HTMLHeadingElement;
-const score = document.getElementById("score") as HTMLDivElement;
+const WIDTH = 1920;
+const HEIGHT = 1080;
 
-disableButtons();
-bind();
+export function initClient() {
+  const socket = io({ upgrade: false, transports: ["websocket"] });
+  const canvas = document.querySelector("canvas") as HTMLCanvasElement;
+  const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+  const player: Entity = {
+    entityId: 0,
+    entityType: ENTITY_TYPE_PLAYER,
+    x: 0,
+    y: 0,
+  };
 
-const points = {
-  //Game points
-  draw: 0,
-  win: 0,
-  lose: 0,
-};
+  let gameState: GameState | undefined = undefined;
 
-/**
- * Disable all button
- */
-function disableButtons() {
-  for (let i = 0; i < buttons.length; i++) {
-    buttons[i].setAttribute("disabled", "disabled");
+  if (DEBUG) {
+    socket.on(NETWORK_EVENT_CONNECT, () => log("Connected..."));
+    socket.on(NETWORK_EVENT_DISCONNECT, () => log("Disconnected..."));
   }
-}
 
-/**
- * Enable all button
- */
-function enableButtons() {
-  for (let i = 0; i < buttons.length; i++) {
-    buttons[i].removeAttribute("disabled");
+  socket.on(NETWORK_EVENT_UPDATE, (data: GameState) => {
+    if (!data || data.entities === undefined) {
+      return;
+    }
+    gameState = data;
+    socket.emit(NETWORK_EVENT_UPDATE, player);
+  });
+
+  initKeys();
+
+  function render(now: number): void {
+    updateKeys();
+
+    if (keys[KEY_LEFT].down) {
+      player.x--;
+    }
+    if (keys[KEY_RIGHT].down) {
+      player.x++;
+    }
+    if (keys[KEY_UP].down) {
+      player.y--;
+    }
+    if (keys[KEY_DOWN].down) {
+      player.y++;
+    }
+
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    ctx.fillStyle = "white";
+    ctx.fillText("Time: " + now.toFixed(1), 10, 10);
+
+    if (gameState) {
+      ctx.fillText("Entities: " + gameState.entities.length, 10, 30);
+      gameState.entities.forEach((entity) => {
+        ctx.fillStyle = "white";
+        ctx.fillRect(entity.x, entity.y, 10, 10);
+      });
+    } else {
+      ctx.fillText("Waiting for server...", 10, 30);
+    }
+
+    if (player) {
+      ctx.fillText(`Player: ${player.x}, ${player.y}`, 10, 50);
+    } else {
+      ctx.fillText(`Player not found (${gameState?.currentEntityId})`, 10, 50);
+    }
+
+    requestAnimationFrame(render);
   }
-}
-
-/**
- * Set message text
- * @param {string} text
- */
-function setMessage(text: string) {
-  message.innerHTML = text;
-}
-
-/**
- * Set score text
- * @param {string} text
- */
-function displayScore(text: string) {
-  score.innerHTML = [
-    "<h2>" + text + "</h2>",
-    "Won: " + points.win,
-    "Lost: " + points.lose,
-    "Draw: " + points.draw,
-  ].join("<br>");
-}
-
-/**
- * Binde Socket.IO and button events
- */
-function bind() {
-  socket.on("start", () => {
-    enableButtons();
-    setMessage("Round " + (points.win + points.lose + points.draw + 1));
-  });
-
-  socket.on("win", () => {
-    points.win++;
-    displayScore("You win!");
-  });
-
-  socket.on("lose", () => {
-    points.lose++;
-    displayScore("You lose!");
-  });
-
-  socket.on("draw", () => {
-    points.draw++;
-    displayScore("Draw!");
-  });
-
-  socket.on("end", () => {
-    disableButtons();
-    setMessage("Waiting for opponent...");
-  });
-
-  socket.on("connect", () => {
-    disableButtons();
-    setMessage("Waiting for opponent...");
-  });
-
-  socket.on("disconnect", () => {
-    disableButtons();
-    setMessage("Connection lost!");
-  });
-
-  socket.on("error", () => {
-    disableButtons();
-    setMessage("Connection error!");
-  });
-
-  for (let i = 0; i < buttons.length; i++) {
-    ((button, guess) => {
-      button.addEventListener(
-        "click",
-        function () {
-          disableButtons();
-          socket.emit("guess", guess);
-        },
-        false
-      );
-    })(buttons[i], i + 1);
-  }
+  requestAnimationFrame(render);
 }
